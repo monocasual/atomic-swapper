@@ -4,7 +4,7 @@
  *
  * -----------------------------------------------------------------------------
  *
- * Copyright (C) 2010-2020 Giovanni A. Zuliani | Monocasual Laboratories
+ * Copyright (C) 2021 Giovanni A. Zuliani | Monocasual Laboratories
  *
  * This file is part of Atomic Swapper.
  *
