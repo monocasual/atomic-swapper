@@ -24,11 +24,13 @@
  *
  * -------------------------------------------------------------------------- */
 
-#ifndef ATOMIC_SWAPPER_H
-#define ATOMIC_SWAPPER_H
+#ifndef MONOCASUAL_ATOMIC_SWAPPER_H
+#define MONOCASUAL_ATOMIC_SWAPPER_H
 
 #include <atomic>
 
+namespace mcl
+{
 template <typename T>
 class AtomicSwapper
 {
@@ -130,5 +132,6 @@ private:
 	std::atomic<int> m_bits{0};
 	int              m_index{0};
 };
+} // namespace mcl
 
 #endif
