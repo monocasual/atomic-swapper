@@ -28,7 +28,6 @@
 #define ATOMIC_SWAPPER_H
 
 #include <atomic>
-#include <functional>
 
 template <typename T>
 class AtomicSwapper
