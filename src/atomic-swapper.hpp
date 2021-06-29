@@ -27,6 +27,7 @@
 #ifndef MONOCASUAL_ATOMIC_SWAPPER_H
 #define MONOCASUAL_ATOMIC_SWAPPER_H
 
+#include <array>
 #include <atomic>
 
 namespace mcl
