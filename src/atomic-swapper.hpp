@@ -66,12 +66,22 @@ public:
 		static_assert(std::is_assignable_v<T, T>);
 	}
 
+	bool isLocked() const
+	{
+		return m_bits.load() & BIT_BUSY;
+	}
+
 	/* get
 	Returns local data for non-realtime thread. */
 
-	T& get()
+	const T& get() const
 	{
 		return m_data[(m_bits.load() & BIT_INDEX) ^ 1];
+	}
+
+	T& get()
+	{
+		return const_cast<T&>(static_cast<const AtomicSwapper&>(*this).get());
 	}
 
 	void swap()
@@ -96,11 +106,6 @@ public:
 		realtime data in the realtime slot (m_data[bits & BIT_INDEX]) that is 
 		currently being read by the realtime thread. */
 		m_data[(bits & BIT_INDEX) ^ 1] = m_data[bits & BIT_INDEX];
-	}
-
-	bool isLocked()
-	{
-		return m_bits.load() & BIT_BUSY;
 	}
 
 private:
