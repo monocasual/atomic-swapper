@@ -66,12 +66,16 @@ public:
 		static_assert(std::is_assignable_v<T, T>);
 	}
 
+	/* isLocked
+	Returns true if the busy bit is currently set, that is if the realtime 
+	thread is reading its copy of data. */
+
 	bool isLocked() const
 	{
 		return m_bits.load() & BIT_BUSY;
 	}
 
-	/* get
+	/* get (1)
 	Returns local data for non-realtime thread. */
 
 	const T& get() const
@@ -79,18 +83,26 @@ public:
 		return m_data[(m_bits.load() & BIT_INDEX) ^ 1];
 	}
 
+	/* get (2)
+	As above, non-const version. */
+
 	T& get()
 	{
 		return const_cast<T&>(static_cast<const AtomicSwapper&>(*this).get());
 	}
 
+	/* swap
+	Core function: swaps the realtime data with the non-realtime one. Waits for
+	the realtime thread until it has finished reading its own copy of data. Only
+	then the indexes are swapped atomically. */
+
 	void swap()
 	{
 		int bits = m_bits.load();
 
-		/* Wait for the audio thread to finish, i.e. until the BUSY bit becomes
-        zero. Only then, swap indexes. This will let the audio thread to pick
-        the updated data on its next cycle. */
+		/* Wait for the realtime thread to finish, i.e. until the BUSY bit 
+		becomes zero. Only then, swap indexes. This will let the realtime thread 
+		to pick the updated data on its next cycle. */
 		int desired;
 		do
 		{
@@ -112,7 +124,10 @@ private:
 	static constexpr int BIT_INDEX = (1 << 0); // 0001
 	static constexpr int BIT_BUSY  = (1 << 1); // 0010
 
-	/* [realtime] lock. */
+	/* [realtime] lock
+	Marks the data as busy. Used when the realtime thread starts reading its own 
+	copy of data. Can't call this directly (it's private), use the scoped lock
+	RtLock class above. */
 
 	void rt_lock()
 	{
@@ -120,14 +135,19 @@ private:
 		m_index = m_bits.fetch_or(BIT_BUSY) & BIT_INDEX;
 	}
 
-	/* [realtime] unlock. */
+	/* [realtime] unlock
+	Marks the data as free. Used when the realtime thread is done with reading 
+	its own copy of data. Can't call this directly (it's private), use the 
+	scoped lock	RtLock class above. */
 
 	void rt_unlock()
 	{
 		m_bits.store(m_index & BIT_INDEX);
 	}
 
-	/* [realtime] Get data currently being ready by the rt thread. */
+	/* [realtime] get
+	Get data currently being ready by the realtime thread. Can't call this 
+	directly (it's private), use the scoped lock RtLock class above.*/
 
 	const T& rt_get() const
 	{
