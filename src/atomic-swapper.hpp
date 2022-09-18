@@ -102,14 +102,22 @@ public:
 
 		/* Wait for the realtime thread to finish, i.e. until the BUSY bit 
 		becomes zero. Only then, swap indexes. This will let the realtime thread 
-		to pick the updated data on its next cycle. */
+		to pick the updated data on its next cycle. Concretely, the loop will 
+		spin until the value of m_bits is equal to the expected one, that is
+		the current m_bits value WITHOUT the busy bit (which means the realtime
+		data is finally unlocked). When it happens, the compare_exchange_weak
+		instruction sets m_bits to a new value: m_bits WITHOUT the busy bit AND
+		the index flipped (which is the actual swap). */
 		int desired;
+		int expected;
 		do
 		{
-			bits    = bits & ~BIT_BUSY;               // Expected: current value without busy bit set
-			desired = (bits ^ BIT_INDEX) & BIT_INDEX; // Desired: flipped (xor) index
-		} while (!m_bits.compare_exchange_weak(bits, desired));
+			expected = bits & ~BIT_BUSY;                   // Expected: current value without busy bit set
+			desired  = (expected ^ BIT_INDEX) & BIT_INDEX; // Desired: expected value with flipped (xor-ed) index
+		} while (!m_bits.compare_exchange_weak(expected, desired));
 
+		/* m_bits now contains the updated value ('desired'). We don't need/want 
+		to load() it though: let's reuse the local variable and update it. */
 		bits = desired;
 
 		/* After the swap above, m_data[(bits & BIT_INDEX) ^ 1] has become the 
@@ -131,8 +139,11 @@ private:
 
 	void rt_lock()
 	{
-		/* Set the busy bit and also get the current index. */
-		m_index = m_bits.fetch_or(BIT_BUSY) & BIT_INDEX;
+		/* Set the busy bit by or-ing the current m_bits value with BIT_BUSY.
+		This is done with the instruction m_bits.fetch_or(BIT_BUSY), which 
+		returns m_bits with the busy bit on. Then get that value in return and 
+		save it to the temp varible m_temp. */
+		m_temp = m_bits.fetch_or(BIT_BUSY);
 	}
 
 	/* [realtime] unlock
@@ -142,7 +153,9 @@ private:
 
 	void rt_unlock()
 	{
-		m_bits.store(m_index & BIT_INDEX);
+		/* Store m_temp into m_bits by and-ing it with BIT_INDEX. This effectively
+		strips away the busy bit an leaves only the index bit as before. */
+		m_bits.store(m_temp & BIT_INDEX);
 	}
 
 	/* [realtime] get
@@ -154,9 +167,22 @@ private:
 		return m_data[m_bits.load() & BIT_INDEX];
 	}
 
+	/* m_data
+	Array containing the two copies of data to be swapped. */
+
 	std::array<T, 2> m_data;
+
+	/* m_bits
+	A bitfield that groups the busy bit and the real-time index in a single
+	atomic variable. */
+
 	std::atomic<int> m_bits{0};
-	int              m_index{0};
+
+	/* m_temp
+	Temporary copy of m_bits with the busy bit set on, used when locking and
+	unlocking the realtime thread. */
+
+	int m_temp{0};
 };
 } // namespace mcl
 
