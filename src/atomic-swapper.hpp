@@ -29,6 +29,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstdint>
 
 namespace mcl
 {
@@ -64,6 +65,7 @@ public:
 	AtomicSwapper()
 	{
 		static_assert(std::is_assignable_v<T, T>);
+		static_assert(std::atomic<uint32_t>::is_always_lock_free);
 	}
 
 	/* isLocked
@@ -98,7 +100,7 @@ public:
 
 	void swap()
 	{
-		int bits = m_bits.load();
+		uint32_t bits = m_bits.load();
 
 		/* Wait for the realtime thread to finish, i.e. until the BUSY bit 
 		becomes zero. Only then, swap indexes. This will let the realtime thread 
@@ -108,8 +110,8 @@ public:
 		data is finally unlocked). When it happens, the compare_exchange_weak
 		instruction sets m_bits to a new value: m_bits WITHOUT the busy bit AND
 		the index flipped (which is the actual swap). */
-		int desired;
-		int expected;
+		uint32_t desired;
+		uint32_t expected;
 		do
 		{
 			expected = bits & ~BIT_BUSY;                   // Expected: current value without busy bit set
@@ -129,8 +131,8 @@ public:
 	}
 
 private:
-	static constexpr int BIT_INDEX = (1 << 0); // 0001
-	static constexpr int BIT_BUSY  = (1 << 1); // 0010
+	static constexpr uint32_t BIT_INDEX = (1 << 0); // 0001
+	static constexpr uint32_t BIT_BUSY  = (1 << 1); // 0010
 
 	/* [realtime] lock
 	Marks the data as busy. Used when the realtime thread starts reading its own 
@@ -176,13 +178,13 @@ private:
 	A bitfield that groups the busy bit and the real-time index in a single
 	atomic variable. */
 
-	std::atomic<int> m_bits{0};
+	std::atomic<uint32_t> m_bits{0};
 
 	/* m_temp
 	Temporary copy of m_bits with the busy bit set on, used when locking and
 	unlocking the realtime thread. */
 
-	int m_temp{0};
+	uint32_t m_temp{0};
 };
 } // namespace mcl
 
