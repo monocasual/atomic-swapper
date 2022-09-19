@@ -4,7 +4,7 @@
  *
  * -----------------------------------------------------------------------------
  *
- * Copyright (C) 2021 Giovanni A. Zuliani | Monocasual Laboratories
+ * Copyright (C) 2021 - 2022 Giovanni A. Zuliani | Monocasual Laboratories
  *
  * This file is part of Atomic Swapper.
  *
@@ -30,19 +30,39 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 
 namespace mcl
 {
-template <typename T>
+template <typename T, std::size_t Size>
 class AtomicSwapper
 {
 public:
+	using ThreadIndex = uint8_t;
+	using Revision    = uint8_t;
+	using Bitfield    = uint32_t;
+
+	/* Thread
+	A struct containing information on the current thread. */
+
+	struct Thread
+	{
+		ThreadIndex index{0};
+		Revision    revision{0};
+		bool        registered{false};
+		bool        realtime{false};
+		std::string name;
+	};
+
+	/* RtLock
+	A class for scoped-locking the real-time thread. */
+
 	class RtLock
 	{
 		friend AtomicSwapper;
 
 	public:
-		RtLock(AtomicSwapper& s)
+		RtLock(const AtomicSwapper& s)
 		: m_swapper(s)
 		{
 			m_swapper.rt_lock();
@@ -59,48 +79,107 @@ public:
 		}
 
 	private:
-		AtomicSwapper& m_swapper;
+		const AtomicSwapper& m_swapper;
 	};
 
+	/* thread
+	The current thread info. Each thread has its own copy (thread_local). */
+
+	inline static thread_local Thread thread;
+
+	/* AtomicSwapper (ctor)
+	The m_bits field is initialized as 0x0000[m_data.size() - 1] so that the
+	real-time thread index will be the last slot in the m_data array. This trick
+	allows you to register other threads easily starting from 0, without stepping
+	on the real-time one's toes. */
+
 	AtomicSwapper()
+	: m_bits(m_data.size() - 1)
 	{
 		static_assert(std::is_assignable_v<T, T>);
-		static_assert(std::atomic<uint32_t>::is_always_lock_free);
+		static_assert(std::atomic<Bitfield>::is_always_lock_free);
+		static_assert(std::atomic<ThreadIndex>::is_always_lock_free);
+		static_assert(Size < RT_INDEX_MASK);
 	}
 
-	/* isLocked
+	/* isRtLocked
 	Returns true if the busy bit is currently set, that is if the realtime 
 	thread is reading its copy of data. */
 
-	bool isLocked() const
+	bool isRtLocked() const
 	{
-		return m_bits.load() & BIT_BUSY;
+		return m_bits.load() & RT_BUSY_BIT;
 	}
 
-	/* get (1)
-	Returns local data for non-realtime thread. */
+	/* registerThread
+	Registers the thread invoking this function as a new one. Does nothing if
+	already registered. Returns false if there's no space left. */
 
-	const T& get() const
+	bool registerThread(const std::string& name, bool realtime) const
 	{
-		return m_data[(m_bits.load() & BIT_INDEX) ^ 1];
+		if (thread.registered)
+			return true;
+
+		/* The critical section starts here. Only one thread at a time can read
+		or write m_lastThreadIndex. */
+
+		std::scoped_lock lock(m_mutex);
+
+		if (m_lastThreadIndex >= m_data.size() - 1) // Not enough space
+			return false;
+
+		/* Set a new thread index. This is not super thread-safe, because a
+		new thread might change the real-time index while performing the two
+		instructions below. However, new threads should be registered on startup,
+		when index swapping is less likely to occur. */
+
+		const ThreadIndex rtIndex  = rt_getIndex(m_bits.load());
+		const ThreadIndex newIndex = realtime ? rtIndex : getNewNonRtThreadIndex(rtIndex);
+
+		thread.index      = newIndex;
+		thread.revision   = 0;
+		thread.registered = true;
+		thread.realtime   = realtime;
+		thread.name       = name;
+
+		return true;
 	}
 
-	/* get (2)
-	As above, non-const version. */
+	/* get
+	Returns local data for a non-realtime thread. */
 
 	T& get()
 	{
-		return const_cast<T&>(static_cast<const AtomicSwapper&>(*this).get());
+		assert(thread.registered);
+		assert(!thread.realtime);
+
+		const Bitfield bits       = m_bits.load();
+		const Revision rtRevision = rt_getRevision(bits);
+
+		if (thread.revision < rtRevision)
+		{
+			m_data[thread.index] = m_data[rt_getIndex(bits)];
+			thread.revision      = rtRevision;
+		}
+
+		return m_data[thread.index];
 	}
 
 	/* swap
-	Core function: swaps the realtime data with the non-realtime one. Waits for
-	the realtime thread until it has finished reading its own copy of data. Only
-	then the indexes are swapped atomically. */
+	Core function: sets the current thread index as the new realtime one. Waits 
+	for the realtime thread until it has finished reading its own copy of data. 
+	Only then the indexes are swapped atomically. */
 
 	void swap()
 	{
-		uint32_t bits = m_bits.load();
+		assert(thread.registered);
+		assert(!thread.realtime);
+
+		const Bitfield    bits        = m_bits.load();
+		const ThreadIndex oldRtIndex  = rt_getIndex(bits);
+		const ThreadIndex newRtIndex  = thread.index;
+		const Revision    oldRevision = rt_getRevision(bits);
+		const Revision    newRevision = oldRevision + 1; // unsigned int overflow is well defined in C++ (it just wraps around)
 
 		/* Wait for the realtime thread to finish, i.e. until the BUSY bit 
 		becomes zero. Only then, swap indexes. This will let the realtime thread 
@@ -109,55 +188,65 @@ public:
 		the current m_bits value WITHOUT the busy bit (which means the realtime
 		data is finally unlocked). When it happens, the compare_exchange_weak
 		instruction sets m_bits to a new value: m_bits WITHOUT the busy bit AND
-		the index flipped (which is the actual swap). */
-		uint32_t desired;
-		uint32_t expected;
+		the index changed (which is the actual swap). */
+		Bitfield expected;
+		Bitfield desired;
 		do
 		{
-			expected = bits & ~BIT_BUSY;                   // Expected: current value without busy bit set
-			desired  = (expected ^ BIT_INDEX) & BIT_INDEX; // Desired: expected value with flipped (xor-ed) index
+			expected = rt_setBusyBitOff(bits);                  // Current value without busy bit set
+			desired  = rt_setRevision(newRtIndex, newRevision); // The new real-time index merged with the new revision number
 		} while (!m_bits.compare_exchange_weak(expected, desired));
 
-		/* m_bits now contains the updated value ('desired'). We don't need/want 
-		to load() it though: let's reuse the local variable and update it. */
-		bits = desired;
+		/* The current thread that requested the swap now gets the old index,
+		since the new one has been given to the real time thread. */
+		thread.index = oldRtIndex;
 
-		/* After the swap above, m_data[(bits & BIT_INDEX) ^ 1] has become the 
-		non-realtime slot and it points to the data previously read by the
-		realtime thread. That data is old, so update it: overwrite it with the 
-		realtime data in the realtime slot (m_data[bits & BIT_INDEX]) that is 
-		currently being read by the realtime thread. */
-		m_data[(bits & BIT_INDEX) ^ 1] = m_data[bits & BIT_INDEX];
+		/* Give the current thread the old revision: it points to old data that 
+		needs to be updated during the next get() call. */
+		thread.revision = oldRevision;
+	}
+
+	/* forEachData
+	Calls 'f' on each data element. Use this only during initialization, when
+	no threads are running! */
+
+	void forEachData(std::function<void(T&)> f)
+	{
+		for (T& t : m_data)
+			f(t);
+	}
+
+	/* debug */
+
+	void debug() const
+	{
+		const Bitfield bits = m_bits.load();
+
+		printf("[AtomicSwapper] data size = %lu\n", m_data.size());
+		printf("[AtomicSwapper] bits = 0x%X\n", bits);
+		printf("[AtomicSwapper] realtime index = %d (0x%X)\n", rt_getIndex(bits), rt_getIndex(bits));
+		printf("[AtomicSwapper] realtime revision = %d (0x%X)\n", rt_getRevision(bits), rt_getRevision(bits));
 	}
 
 private:
-	static constexpr uint32_t BIT_INDEX = (1 << 0); // 0001
-	static constexpr uint32_t BIT_BUSY  = (1 << 1); // 0010
+	static constexpr Bitfield RT_REVISION_MASK   = 0xFF000; // 1111 1111 0000 0000 0000
+	static constexpr Bitfield RT_REVISION_OFFSET = 12;      //
+	static constexpr Bitfield RT_INDEX_MASK      = 0xFF;    // 0000 0000 0000 1111 1111
+	static constexpr Bitfield RT_BUSY_BIT        = 0x100;   // 0000 0000 0001 0000 0000
 
-	/* [realtime] lock
-	Marks the data as busy. Used when the realtime thread starts reading its own 
-	copy of data. Can't call this directly (it's private), use the scoped lock
-	RtLock class above. */
+	/* getNewNonRtThreadIndex
+	Returns a new non-realtime thread index, making sure the new index is different
+	than the real-time one. */
 
-	void rt_lock()
+	ThreadIndex getNewNonRtThreadIndex(ThreadIndex rtIndex) const
 	{
-		/* Set the busy bit by or-ing the current m_bits value with BIT_BUSY.
-		This is done with the instruction m_bits.fetch_or(BIT_BUSY), which 
-		returns m_bits with the busy bit on. Then get that value in return and 
-		save it to the temp varible m_temp. */
-		m_temp = m_bits.fetch_or(BIT_BUSY);
-	}
+		ThreadIndex newIndex = m_lastThreadIndex++;
+		if (newIndex == rtIndex)
+			newIndex = m_lastThreadIndex++;
 
-	/* [realtime] unlock
-	Marks the data as free. Used when the realtime thread is done with reading 
-	its own copy of data. Can't call this directly (it's private), use the 
-	scoped lock	RtLock class above. */
+		assert(m_lastThreadIndex <= m_data.size() - 1);
 
-	void rt_unlock()
-	{
-		/* Store m_temp into m_bits by and-ing it with BIT_INDEX. This effectively
-		strips away the busy bit an leaves only the index bit as before. */
-		m_bits.store(m_temp & BIT_INDEX);
+		return newIndex;
 	}
 
 	/* [realtime] get
@@ -166,25 +255,102 @@ private:
 
 	const T& rt_get() const
 	{
-		return m_data[m_bits.load() & BIT_INDEX];
+		assert(thread.registered);
+		assert(thread.realtime);
+
+		return m_data[rt_getIndex(m_bits.load())];
+	}
+
+	/* [realtime] getIndex
+	Returns the current real-time thread index. */
+
+	ThreadIndex rt_getIndex(Bitfield bits) const
+	{
+		return bits & RT_INDEX_MASK;
+	}
+
+	Revision rt_getRevision(Bitfield bits) const
+	{
+		return (bits & RT_REVISION_MASK) >> RT_REVISION_OFFSET;
+	};
+
+	Bitfield rt_setRevision(Bitfield bits, Revision r) const
+	{
+		return (bits & ~RT_REVISION_MASK) | (r << RT_REVISION_OFFSET); // Clear and set
+	};
+
+	Bitfield rt_setBusyBitOff(Bitfield bits) const
+	{
+		return bits & ~RT_BUSY_BIT;
+	}
+
+	/* [realtime] lock
+	Marks the data as busy. Used when the realtime thread starts reading its own 
+	copy of data. Can't call this directly (it's private), use the scoped lock
+	RtLock class above. */
+
+	void rt_lock() const
+	{
+		assert(thread.registered);
+		assert(thread.realtime);
+
+		/* Set the busy bit by or-ing the current m_bits value with BIT_BUSY.
+		This is done with the instruction m_bits.fetch_or(BIT_BUSY), which 
+		returns m_bits with the busy bit on. Then get that value in return and 
+		save it to the temp varible m_temp. */
+		m_temp = m_bits.fetch_or(RT_BUSY_BIT);
+	}
+
+	/* [realtime] unlock
+	Marks the data as free. Used when the realtime thread is done with reading 
+	its own copy of data. Can't call this directly (it's private), use the 
+	scoped lock	RtLock class above. */
+
+	void rt_unlock() const
+	{
+		assert(thread.registered);
+		assert(thread.realtime);
+
+		/* Store m_temp into m_bits by and-ing it with ~RT_BUSY_BIT. This effectively
+		strips away the busy bit an leaves only the index part as before. */
+		m_bits.store(rt_setBusyBitOff(m_temp));
 	}
 
 	/* m_data
-	Array containing the two copies of data to be swapped. */
+	Array containing 'Size' copies of data to be swapped. */
 
-	std::array<T, 2> m_data;
+	std::array<T, Size> m_data;
 
 	/* m_bits
-	A bitfield that groups the busy bit and the real-time index in a single
-	atomic variable. */
+	A bitfield that groups the busy bit, the revision number and the real-time 
+	index in a single atomic variable. Actually initialized in the constructor 
+	(see note there). 
+	
+	rrrr 000b iiii iiii
 
-	std::atomic<uint32_t> m_bits{0};
+	r = revision
+	b = busy bit
+	i = index	
+	*/
+
+	mutable std::atomic<Bitfield> m_bits{0};
 
 	/* m_temp
 	Temporary copy of m_bits with the busy bit set on, used when locking and
 	unlocking the realtime thread. */
 
-	uint32_t m_temp{0};
+	mutable Bitfield m_temp{0};
+
+	/* m_lastThreadIndex
+	The last index generated when registering a thread. Must not be greater
+	than m_data.size(). */
+
+	mutable ThreadIndex m_lastThreadIndex{0};
+
+	/* m_mutex
+	A mutex used when registering new threads. */
+
+	mutable std::mutex m_mutex;
 };
 } // namespace mcl
 
