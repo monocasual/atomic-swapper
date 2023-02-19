@@ -226,6 +226,11 @@ public:
 		printf("[AtomicSwapper] bits = 0x%X\n", bits);
 		printf("[AtomicSwapper] realtime index = %d (0x%X)\n", rt_getIndex(bits), rt_getIndex(bits));
 		printf("[AtomicSwapper] realtime revision = %d (0x%X)\n", rt_getRevision(bits), rt_getRevision(bits));
+		printf("[AtomicSwapper] thread name = %s\n", thread.name.c_str());
+		printf("[AtomicSwapper] thread index = %d\n", thread.index);
+		printf("[AtomicSwapper] thread revision = %d\n", thread.revision);
+		printf("[AtomicSwapper] thread is registered = %d\n", thread.registered);
+		printf("[AtomicSwapper] thread is realtime = %d\n", thread.realtime);
 	}
 
 private:
