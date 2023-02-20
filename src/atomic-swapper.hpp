@@ -148,7 +148,7 @@ public:
 	/* get
 	Returns local data for a non-realtime thread. */
 
-	T& get()
+	const T& get() const
 	{
 		assert(thread.registered);
 		assert(!thread.realtime);
@@ -163,6 +163,11 @@ public:
 		}
 
 		return m_data[thread.index];
+	}
+
+	T& get()
+	{
+		return const_cast<T&>(std::as_const(*this).get());
 	}
 
 	/* swap
@@ -324,7 +329,7 @@ private:
 	/* m_data
 	Array containing 'Size' copies of data to be swapped. */
 
-	std::array<T, Size> m_data;
+	mutable std::array<T, Size> m_data;
 
 	/* m_bits
 	A bitfield that groups the busy bit, the revision number and the real-time 
