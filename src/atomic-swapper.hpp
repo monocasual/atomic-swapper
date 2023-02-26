@@ -120,18 +120,18 @@ public:
 		if (thread.registered)
 			return true;
 
-		/* The critical section starts here. Only one thread at a time can read
-		or write m_lastThreadIndex. */
+		/* The critical section starts here. Only one thread at a time can be
+		registered. */
 
 		std::scoped_lock lock(m_mutex);
 
 		if (m_lastThreadIndex >= m_data.size() - 1) // Not enough space
 			return false;
 
-		/* Set a new thread index. This is not super thread-safe, because a
-		new thread might change the real-time index while performing the two
-		instructions below. However, new threads should be registered on startup,
-		when index swapping is less likely to occur. */
+		/* Set a new thread index. This is not super thread-safe, because an
+		existing thread might change the real-time index while the new one performs 
+		the two instructions below. However, new threads should be registered on 
+		startup, when index swapping is less likely to occur. */
 
 		const ThreadIndex rtIndex  = rt_getIndex(m_bits.load());
 		const ThreadIndex newIndex = realtime ? rtIndex : getNewNonRtThreadIndex(rtIndex);
