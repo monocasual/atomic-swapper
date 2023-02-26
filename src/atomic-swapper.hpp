@@ -211,16 +211,6 @@ public:
 		thread.revision = oldRevision;
 	}
 
-	/* forEachData
-	Calls 'f' on each data element. Use this only during initialization, when
-	no threads are running! */
-
-	void forEachData(std::function<void(T&)> f)
-	{
-		for (T& t : m_data)
-			f(t);
-	}
-
 	/* debug */
 
 	void debug() const
