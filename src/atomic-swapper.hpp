@@ -156,7 +156,7 @@ public:
 		const Bitfield bits       = m_bits.load();
 		const Revision rtRevision = rt_getRevision(bits);
 
-		if (thread.revision < rtRevision)
+		if (thread.revision != rtRevision)
 		{
 			m_data[thread.index] = m_data[rt_getIndex(bits)];
 			thread.revision      = rtRevision;
