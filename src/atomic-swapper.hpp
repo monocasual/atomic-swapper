@@ -184,7 +184,7 @@ public:
 		const ThreadIndex oldRtIndex  = rt_getIndex(bits);
 		const ThreadIndex newRtIndex  = thread.index;
 		const Revision    oldRevision = rt_getRevision(bits);
-		const Revision    newRevision = oldRevision + 1; // unsigned int overflow is well defined in C++ (it just wraps around)
+		const Revision    newRevision = (oldRevision + 1) % RT_REVISION_SIZE; // make it wrap around when > RT_REVISION_SIZE
 
 		/* Wait for the realtime thread to finish, i.e. until the BUSY bit 
 		becomes zero. Only then, swap indexes. This will let the realtime thread 
@@ -229,10 +229,11 @@ public:
 	}
 
 private:
-	static constexpr Bitfield RT_REVISION_MASK   = 0xFFFFF000; // 1111 1111 1111 1111 1111 0000 0000 0000
-	static constexpr Bitfield RT_REVISION_OFFSET = 12;         //                        ^---------------
-	static constexpr Bitfield RT_INDEX_MASK      = 0xFF;       // 0000 0000 0000 0000 0000 0000 1111 1111
-	static constexpr Bitfield RT_BUSY_BIT        = 0x100;      // 0000 0000 0000 0000 0000 0001 0000 0000
+	static constexpr std::size_t RT_REVISION_SIZE   = 0xFFFFF;                                // 20 bits (dec = 1048576)
+	static constexpr std::size_t RT_REVISION_OFFSET = 12;                                     //                        |---------------
+	static constexpr Bitfield    RT_REVISION_MASK   = RT_REVISION_SIZE << RT_REVISION_OFFSET; // 1111 1111 1111 1111 1111 0000 0000 0000
+	static constexpr Bitfield    RT_INDEX_MASK      = 0xFF;                                   // 0000 0000 0000 0000 0000 0000 1111 1111
+	static constexpr Bitfield    RT_BUSY_BIT        = 0x100;                                  // 0000 0000 0000 0000 0000 0001 0000 0000
 
 	/* getNewNonRtThreadIndex
 	Returns a new non-realtime thread index, making sure the new index is different
