@@ -39,7 +39,7 @@ class AtomicSwapper
 {
 public:
 	using ThreadIndex = uint8_t;
-	using Revision    = uint8_t;
+	using Revision    = uint32_t;
 	using Bitfield    = uint32_t;
 
 	/* Thread
@@ -229,10 +229,10 @@ public:
 	}
 
 private:
-	static constexpr Bitfield RT_REVISION_MASK   = 0xFF000; // 1111 1111 0000 0000 0000
-	static constexpr Bitfield RT_REVISION_OFFSET = 12;      //
-	static constexpr Bitfield RT_INDEX_MASK      = 0xFF;    // 0000 0000 0000 1111 1111
-	static constexpr Bitfield RT_BUSY_BIT        = 0x100;   // 0000 0000 0001 0000 0000
+	static constexpr Bitfield RT_REVISION_MASK   = 0xFFFFF000; // 1111 1111 1111 1111 1111 0000 0000 0000
+	static constexpr Bitfield RT_REVISION_OFFSET = 12;         //                        ^---------------
+	static constexpr Bitfield RT_INDEX_MASK      = 0xFF;       // 0000 0000 0000 0000 0000 0000 1111 1111
+	static constexpr Bitfield RT_BUSY_BIT        = 0x100;      // 0000 0000 0000 0000 0000 0001 0000 0000
 
 	/* getNewNonRtThreadIndex
 	Returns a new non-realtime thread index, making sure the new index is different
