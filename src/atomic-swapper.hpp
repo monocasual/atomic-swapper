@@ -29,6 +29,7 @@
 
 #include <array>
 #include <atomic>
+#include <cassert>
 #include <cstdint>
 #include <mutex>
 
