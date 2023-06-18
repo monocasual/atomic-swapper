@@ -157,6 +157,8 @@ public:
 		const Bitfield bits       = m_bits.load();
 		const Revision rtRevision = rt_getRevision(bits);
 
+		/* Update local data if it's older than the real time one. */
+
 		if (thread.revision != rtRevision)
 		{
 			m_data[thread.index] = m_data[rt_getIndex(bits)];
