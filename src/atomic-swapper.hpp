@@ -157,13 +157,7 @@ public:
 		const Bitfield bits       = m_bits.load();
 		const Revision rtRevision = rt_getRevision(bits);
 
-		/* Update local data if it's older than the real time one. */
-
-		if (thread.revision != rtRevision)
-		{
-			m_data[thread.index] = m_data[rt_getIndex(bits)];
-			thread.revision      = rtRevision;
-		}
+		updateLocalDataToLatest(bits, rtRevision);
 
 		return m_data[thread.index];
 	}
@@ -318,6 +312,22 @@ private:
 		/* Store m_temp into m_bits by and-ing it with ~RT_BUSY_BIT. This effectively
 		strips away the busy bit an leaves only the index part as before. */
 		m_bits.store(rt_setBusyBitOff(m_temp));
+	}
+
+	/* updateLocalDataToLatest
+	Updates the local data and the local revision number if the local data is
+	older than the realtime one. Call this whenever you want the caller thread
+	to get the freshest copy of the data currently in use by the realtime thread. */
+
+	void updateLocalDataToLatest(Bitfield bits, Revision rtRevision) const
+	{
+		assert(thread.registered);
+		assert(!thread.realtime);
+
+		if (thread.revision == rtRevision)
+			return;
+		m_data[thread.index] = m_data[rt_getIndex(bits)];
+		thread.revision      = rtRevision;
 	}
 
 	/* m_data
