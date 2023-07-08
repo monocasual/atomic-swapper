@@ -27,11 +27,11 @@
 #ifndef MONOCASUAL_ATOMIC_SWAPPER_H
 #define MONOCASUAL_ATOMIC_SWAPPER_H
 
-#include <array>
 #include <atomic>
 #include <cassert>
 #include <cstdint>
 #include <mutex>
+#include <vector>
 
 namespace mcl
 {
@@ -95,7 +95,8 @@ public:
 	on the real-time one's toes. */
 
 	AtomicSwapper()
-	: m_bits(m_data.size() - 1)
+	: m_data(Size, T())
+	, m_bits(m_data.size() - 1)
 	{
 		static_assert(std::is_assignable_v<T, T>);
 		static_assert(std::atomic<Bitfield>::is_always_lock_free);
@@ -336,9 +337,9 @@ private:
 	}
 
 	/* m_data
-	Array containing 'Size' copies of data to be swapped. */
+	Vector containing 'Size' copies of data to be swapped. */
 
-	mutable std::array<T, Size> m_data;
+	mutable std::vector<T> m_data;
 
 	/* m_bits
 	A bitfield that groups the busy bit, the revision number and the real-time 
