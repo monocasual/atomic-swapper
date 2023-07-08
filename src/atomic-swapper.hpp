@@ -100,7 +100,7 @@ public:
 		static_assert(std::is_assignable_v<T, T>);
 		static_assert(std::atomic<Bitfield>::is_always_lock_free);
 		static_assert(std::atomic<ThreadIndex>::is_always_lock_free);
-		static_assert(Size < RT_INDEX_MASK);
+		static_assert(Size < RT_MAX_SIZE);
 	}
 
 	/* isRtLocked
@@ -235,6 +235,7 @@ private:
 	static constexpr Bitfield    RT_REVISION_MASK   = RT_REVISION_SIZE << RT_REVISION_OFFSET; // 1111 1111 1111 1111 1111 0000 0000 0000
 	static constexpr Bitfield    RT_INDEX_MASK      = 0xFF;                                   // 0000 0000 0000 0000 0000 0000 1111 1111
 	static constexpr Bitfield    RT_BUSY_BIT        = 0x100;                                  // 0000 0000 0000 0000 0000 0001 0000 0000
+	static constexpr Bitfield    RT_MAX_SIZE        = RT_INDEX_MASK;
 
 	/* getNewNonRtThreadIndex
 	Returns a new non-realtime thread index, making sure the new index is different
