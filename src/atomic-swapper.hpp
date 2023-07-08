@@ -345,11 +345,11 @@ private:
 	index in a single atomic variable. Actually initialized in the constructor 
 	(see note there). 
 	
-	rrrr 000b iiii iiii
+	rrrr rrrr rrrr rrrr rrrr 000b iiii iiii
 
-	r = revision
-	b = busy bit
-	i = index	
+	r = revision (5 bytes)
+	b = busy bit (1 byte)
+	i = index    (2 bytes)
 	*/
 
 	mutable std::atomic<Bitfield> m_bits{0};
