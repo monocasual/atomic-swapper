@@ -207,6 +207,10 @@ public:
 		/* Give the current thread the old revision: it points to old data that 
 		needs to be updated during the next get() call. */
 		thread.revision = oldRevision;
+
+		/* At this point, 'desired' contains the new bitfield with all values
+		updated. Let's update the caller's local data with the new one. */
+		updateLocalDataToLatest(desired, newRevision);
 	}
 
 	/* debug */
