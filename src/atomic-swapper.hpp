@@ -184,10 +184,6 @@ public:
 		const Revision    oldRevision = rt_getRevision(bits);
 		const Revision    newRevision = (oldRevision + 1) % RT_REVISION_SIZE; // make it wrap around when > RT_REVISION_SIZE
 
-		/* Make sure the caller has the most up-to-date data, otherwise it would
-		give the realtime thread an old version of it. */
-		updateLocalDataToLatest(bits, oldRevision);
-
 		/* Wait for the realtime thread to finish, i.e. until the BUSY bit 
 		becomes zero. Only then, swap indexes. This will let the realtime thread 
 		to pick the updated data on its next cycle. Concretely, the loop will 
