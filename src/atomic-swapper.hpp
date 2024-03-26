@@ -31,6 +31,7 @@
 #include <cassert>
 #include <cstdint>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 namespace mcl
